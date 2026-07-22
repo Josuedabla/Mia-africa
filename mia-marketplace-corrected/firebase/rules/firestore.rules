@@ -1,0 +1,323 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    function isVendor() {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'vendor';
+    }
+    
+    function isDriver() {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'driver';
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isVendorOfShop(shopId) {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/shops/$(shopId)).data.vendorId == request.auth.uid;
+    }
+    
+    // ============ USERS ============
+    match /users/{userId} {
+      // Users can read their own document
+      allow read: if isOwner(userId) || isAdmin();
+      // Users can update their own document (but never their own role,
+      // to prevent self-promotion to admin/vendor via a crafted write)
+      allow update: if isOwner(userId) &&
+                       (!('role' in request.resource.data) ||
+                        request.resource.data.role == resource.data.role);
+      // Users can create their own document right after signing up
+      // (previously admin-only, which made public registration
+      // impossible - the signUpWithEmail flow in useAuth.ts could never
+      // succeed in writing the matching users/{uid} document)
+      allow create: if isOwner(userId) &&
+                       request.resource.data.role in ['user', 'vendor', 'driver'];
+      // Only admins can delete users
+      allow delete: if isAdmin();
+    }
+    
+    // ============ VENDORS ============
+    match /vendors/{vendorId} {
+      // Vendors can read their own document
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      // Vendors can update their own document
+      allow update: if isOwner(resource.data.userId);
+      // Only admins can create vendors
+      allow create: if isAdmin();
+      // Only admins can delete vendors
+      allow delete: if isAdmin();
+    }
+    
+    // ============ SHOPS ============
+    match /shops/{shopId} {
+      // Public read access
+      allow read: if true;
+      // Vendors can update their own shop
+      allow update: if isVendorOfShop(shopId);
+      // Vendors can create shops
+      allow create: if isVendor();
+      // Only admins can delete shops
+      allow delete: if isAdmin();
+    }
+    
+    // ============ WALLET & MONEY (all writes via Cloud Functions only) ============
+    // Every collection below holds real or virtual money movements. The
+    // client can only ever READ its own data - every balance change goes
+    // through a Cloud Function (functions/src/wallet.ts, coins.ts,
+    // transfers.ts, referral.ts, orders.ts) using the Admin SDK, which
+    // bypasses these rules by design. A blanket `allow write: if false`
+    // is intentional and should not be "fixed" to allow client writes.
+    match /wallets/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if false;
+    }
+
+    match /walletTransactions/{txId} {
+      allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow write: if false;
+    }
+
+    match /coinBalances/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if false;
+    }
+
+    match /coinTransactions/{txId} {
+      allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow write: if false;
+    }
+
+    match /gifts/{giftId} {
+      // Sender can see what they sent; the vendor who received it can see
+      // it too (useful for a "gifts received" panel in the vendor dashboard).
+      allow read: if isAuthenticated() &&
+                     (resource.data.fromUid == request.auth.uid ||
+                      resource.data.vendorId == request.auth.uid ||
+                      isAdmin());
+      allow write: if false;
+    }
+
+    match /productBoosts/{boostId} {
+      // Public read so ranking/search logic and the storefront can factor
+      // in active boosts without needing elevated privileges.
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /transfers/{transferId} {
+      allow read: if isAuthenticated() &&
+                     (resource.data.fromUid == request.auth.uid ||
+                      resource.data.toUid == request.auth.uid ||
+                      isAdmin());
+      allow write: if false;
+    }
+
+    match /payoutRequests/{payoutId} {
+      allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow write: if false;
+    }
+
+    match /referrals/{userId} {
+      // A user can see their own referral link-up; a referrer can see who
+      // they referred (needed to render "my referrals" lists).
+      allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid || resource.data.referrerUid == request.auth.uid || isAdmin());
+      allow write: if false;
+    }
+
+    // ============ PRODUCTS ============
+    match /products/{productId} {
+      // Public read access
+      allow read: if true;
+      // Vendors can update their own products
+      allow update: if isVendorOfShop(resource.data.shopId);
+      // Vendors can create products, but only under their own shop -
+      // `allow create: if isVendor()` alone let any vendor attach a
+      // product to a shopId they don't own.
+      allow create: if isVendor() && isVendorOfShop(request.resource.data.shopId);
+      // Vendors can delete their own products
+      allow delete: if isVendorOfShop(resource.data.shopId);
+    }
+    
+    // ============ ORDERS ============
+    match /orders/{orderId} {
+      // Customers can read their own orders
+      allow read: if isOwner(resource.data.customerId) || 
+                     isVendorOfShop(resource.data.shopId) ||
+                     isDriver() ||
+                     isAdmin();
+      // Customers can create orders, but only for themselves, only in a
+      // starting "pending" state, and only with a positive numeric total -
+      // previously `allow create: if isAuthenticated()` let anyone create
+      // an order under someone else's customerId with any total they liked.
+      // The total itself should still be recomputed and trusted from the
+      // Chariow webhook (see functions/src/chariow.ts), never from the
+      // client alone - this rule only stops obviously malformed writes.
+      allow create: if isAuthenticated()
+                       && request.resource.data.customerId == request.auth.uid
+                       && request.resource.data.status == 'pending'
+                       && request.resource.data.total is number
+                       && request.resource.data.total > 0;
+      // Vendors/admins can update order status; customers may only cancel
+      // their own still-pending order, never edit the total after the fact.
+      allow update: if isAdmin()
+                       || isVendorOfShop(resource.data.shopId)
+                       || (isOwner(resource.data.customerId)
+                           && resource.data.status == 'pending'
+                           && request.resource.data.status == 'cancelled'
+                           && request.resource.data.total == resource.data.total);
+      // Only admins can delete orders
+      allow delete: if isAdmin();
+    }
+    
+    // ============ TRANSACTIONS ============
+    match /transactions/{transactionId} {
+      // Vendors can read their own transactions
+      allow read: if isOwner(resource.data.vendorId) || isAdmin();
+      // Only backend can create transactions
+      allow create: if false; // Backend only
+      // Only admins can update transactions
+      allow update: if isAdmin();
+      // Only admins can delete transactions
+      allow delete: if isAdmin();
+    }
+    
+    // ============ DRIVERS ============
+    match /drivers/{driverId} {
+      // Drivers can read their own document
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      // Drivers can update their own document
+      allow update: if isOwner(resource.data.userId);
+      // Drivers can create their profile
+      allow create: if isDriver();
+      // Only admins can delete drivers
+      allow delete: if isAdmin();
+    }
+    
+    // ============ DELIVERIES ============
+    match /deliveries/{deliveryId} {
+      // Customers, vendors, drivers, and admins can read
+      allow read: if isAuthenticated() && 
+                     (isOwner(get(/databases/$(database)/documents/orders/$(resource.data.orderId)).data.customerId) ||
+                      isVendorOfShop(get(/databases/$(database)/documents/orders/$(resource.data.orderId)).data.shopId) ||
+                      isOwner(resource.data.driverId) ||
+                      isAdmin());
+      // Backend can create deliveries
+      allow create: if false; // Backend only
+      // Drivers can update delivery status
+      allow update: if isOwner(resource.data.driverId) || isAdmin();
+      // Only admins can delete deliveries
+      allow delete: if isAdmin();
+    }
+    
+    // ============ AD CAMPAIGNS ============
+    match /adCampaigns/{campaignId} {
+      // Vendors can read their own campaigns
+      allow read: if isOwner(resource.data.vendorId) || isAdmin();
+      // Vendors can create campaigns
+      allow create: if isVendor();
+      // Vendors can update their own campaigns
+      allow update: if isOwner(resource.data.vendorId);
+      // Vendors can delete their own campaigns
+      allow delete: if isOwner(resource.data.vendorId);
+    }
+    
+    // ============ REVIEWS ============
+    match /reviews/{reviewId} {
+      // Public read access
+      allow read: if true;
+      // Customers can only review a product they actually bought and
+      // received - previously `allow create: if isAuthenticated()` let
+      // anyone post a review for any product without ever purchasing it.
+      allow create: if isAuthenticated()
+        && request.resource.data.customerId == request.auth.uid
+        && exists(/databases/$(database)/documents/orders/$(request.resource.data.orderId))
+        && get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.customerId == request.auth.uid
+        && get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.status == 'delivered'
+        && get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.productId == request.resource.data.productId;
+      // Customers can update their own reviews
+      allow update: if isOwner(resource.data.customerId) || isAdmin();
+      // Only admins can delete reviews
+      allow delete: if isAdmin();
+    }
+    
+    // ============ INTERACTIONS ============
+    match /interactions/{interactionId} {
+      // Users can only read their own interactions
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      // Users can create interactions
+      allow create: if isAuthenticated();
+      // Only admins can delete interactions
+      allow delete: if isAdmin();
+    }
+    
+    // ============ REPUTATION ============
+    match /reputation/{reputationId} {
+      // Public read access
+      allow read: if true;
+      // Only backend can create/update reputation
+      allow create, update: if false; // Backend only
+      // Only admins can delete
+      allow delete: if isAdmin();
+    }
+    
+    // ============ SECURITY LOGS ============
+    match /securityLogs/{logId} {
+      // Only admins can read logs
+      allow read: if isAdmin();
+      // Only backend can create logs
+      allow create: if false; // Backend only
+      // Only admins can delete logs
+      allow delete: if isAdmin();
+    }
+    
+    // ============ FRAUD ALERTS ============
+    match /fraudAlerts/{alertId} {
+      // Only admins can read alerts
+      allow read: if isAdmin();
+      // Only backend can create alerts
+      allow create: if false; // Backend only
+      // Only admins can update alerts
+      allow update: if isAdmin();
+      // Only admins can delete alerts
+      allow delete: if isAdmin();
+    }
+    
+    // ============ NOTIFICATIONS ============
+    match /notifications/{notificationId} {
+      // Users can read their own notifications
+      allow read: if isOwner(resource.data.userId);
+      // Only backend can create notifications
+      allow create: if false; // Backend only
+      // Users can update their own notifications
+      allow update: if isOwner(resource.data.userId);
+      // Users can delete their own notifications
+      allow delete: if isOwner(resource.data.userId);
+    }
+    
+    // ============ CARTS ============
+    match /carts/{cartId} {
+      // Users can read their own cart
+      allow read: if isOwner(resource.data.userId);
+      // Users can create their cart
+      allow create: if isAuthenticated();
+      // Users can update their own cart
+      allow update: if isOwner(resource.data.userId);
+      // Users can delete their own cart
+      allow delete: if isOwner(resource.data.userId);
+    }
+  }
+}

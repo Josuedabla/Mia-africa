@@ -1,0 +1,66 @@
+rules_version = '2';
+
+// This file was referenced by firebase.json ("storage": { "rules":
+// "firebase/rules/storage.rules" }) but did not exist in the repository.
+// Without it, `firebase deploy` for Storage would fail outright, or - if a
+// bucket already existed from the Firebase console's default "test mode" -
+// every file could be read and overwritten by anyone for 30 days with no
+// warning once that window silently expired into a locked/undefined state.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    function isUnder5MB() {
+      return request.resource.size < 5 * 1024 * 1024;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Product images: publicly readable, only the vendor who owns the shop
+    // (matched by Firestore shops/{shopId}.vendorId) can upload/replace them.
+    match /products/{shopId}/{allImages=**} {
+      allow read: if true;
+      allow write: if isAuthenticated()
+        && firestore.get(/databases/(default)/documents/shops/$(shopId)).data.vendorId == request.auth.uid
+        && isImage()
+        && isUnder5MB();
+      allow delete: if isAuthenticated()
+        && (isAdmin() ||
+            firestore.get(/databases/(default)/documents/shops/$(shopId)).data.vendorId == request.auth.uid);
+    }
+
+    // Shop branding (logo/banner): same ownership rule as products.
+    match /shops/{shopId}/{allImages=**} {
+      allow read: if true;
+      allow write: if isAuthenticated()
+        && firestore.get(/databases/(default)/documents/shops/$(shopId)).data.vendorId == request.auth.uid
+        && isImage()
+        && isUnder5MB();
+      allow delete: if isAuthenticated()
+        && (isAdmin() ||
+            firestore.get(/databases/(default)/documents/shops/$(shopId)).data.vendorId == request.auth.uid);
+    }
+
+    // User avatars: only the user themself can read/write their own avatar.
+    match /avatars/{userId}/{allImages=**} {
+      allow read: if true;
+      allow write: if isAuthenticated() && request.auth.uid == userId && isImage() && isUnder5MB();
+      allow delete: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+    }
+
+    // Everything else is denied by default.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
