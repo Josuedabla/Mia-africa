@@ -1,0 +1,113 @@
+import React, { useEffect, useState } from 'react';
+import { useOutletContext, Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { getShopProducts } from '@/services/db.service';
+import type { MyShop } from '@/hooks/useMyShop';
+import { Plus, Pencil, ImageOff } from 'lucide-react';
+
+interface OutletCtx {
+  shop: MyShop;
+}
+
+interface VendorProduct {
+  id: string;
+  name: string;
+  price: number;
+  currency?: string;
+  images?: string[];
+  status: string;
+  stock: number;
+  quality_score?: number;
+}
+
+const PRODUCT_STATUS_LABEL_KEY: Record<string, string> = {
+  draft: 'vendor_products.status_draft',
+  active: 'vendor_products.status_active',
+  archived: 'vendor_products.status_archived',
+};
+
+function ScoreBadge({ score }: { score?: number }) {
+  if (score == null) return null;
+  const color =
+    score >= 80 ? 'bg-mia-green-100 text-mia-green-700' :
+    score >= 50 ? 'bg-amber-100 text-amber-700' :
+    'bg-red-100 text-red-700';
+  return <span className={`text-xs font-semibold px-2 py-1 rounded-full ${color}`}>{score}/100</span>;
+}
+
+export default function VendorProducts() {
+  const { shop } = useOutletContext<OutletCtx>();
+  const { t } = useTranslation();
+  const [products, setProducts] = useState<VendorProduct[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    getShopProducts(shop.id)
+      .then((data) => {
+        if (!cancelled) setProducts(data as VendorProduct[]);
+      })
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [shop.id]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-900">{t('vendor_products.title')}</h1>
+        <Link
+          to="/vendeur/produits/nouveau"
+          className="inline-flex items-center gap-2 bg-mia-green-600 hover:bg-mia-green-700 text-white font-semibold px-4 py-2.5 rounded-lg"
+        >
+          <Plus size={18} /> {t('vendor_products.new_product')}
+        </Link>
+      </div>
+
+      {loading && <p className="text-gray-400 text-sm">{t('common.loading')}</p>}
+
+      {!loading && products.length === 0 && (
+        <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
+          <p className="text-gray-500 mb-4">{t('vendor_products.empty')}</p>
+          <Link to="/vendeur/produits/nouveau" className="text-mia-green-700 font-semibold">
+            {t('vendor_products.add_first')} →
+          </Link>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {products.map((product) => (
+          <div key={product.id} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="aspect-square bg-gray-100 flex items-center justify-center">
+              {product.images?.[0] ? (
+                <img src={product.images[0]} alt={product.name} className="w-full h-full object-cover" />
+              ) : (
+                <ImageOff className="text-gray-300" size={32} />
+              )}
+            </div>
+            <div className="p-4">
+              <div className="flex items-start justify-between gap-2 mb-1">
+                <p className="font-semibold text-gray-900 line-clamp-1">{product.name}</p>
+                <ScoreBadge score={product.quality_score} />
+              </div>
+              <p className="text-mia-green-700 font-bold mb-1">
+                {product.price?.toLocaleString()} {product.currency ?? 'FCFA'}
+              </p>
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>{t('vendor_products.stock_label', { count: product.stock ?? 0 })}</span>
+                <span>{t(PRODUCT_STATUS_LABEL_KEY[product.status] ?? 'vendor_products.status_draft')}</span>
+              </div>
+              <Link
+                to={`/vendeur/produits/${product.id}`}
+                className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-mia-green-700"
+              >
+                <Pencil size={14} /> {t('vendor_products.edit')}
+              </Link>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
