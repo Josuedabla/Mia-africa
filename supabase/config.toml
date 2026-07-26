@@ -1,0 +1,41 @@
+project_id = "mia-marketplace"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["https://mia-marketplace.app"]
+jwt_expiry = 3600
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+enable_confirmations = false
+
+[auth.sms]
+enable_signup = true
+enable_confirmations = false
+# Configure a real SMS provider (Twilio, MessageBird, etc.) before
+# production - phone auth is central to the "one MIA identity" vision
+# and to country detection via phone prefix.
+
+[storage]
+enabled = true
+file_size_limit = "5MiB"
+
+[edge_runtime]
+enabled = true
