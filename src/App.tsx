@@ -5,6 +5,7 @@
 
 import React, { useState, lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, useNavigate, Navigate } from 'react-router-dom';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import HomePage from './pages/HomePage';
 import ProductPage from './pages/ProductPage';
 import ShopPage from './pages/ShopPage';
@@ -257,6 +258,7 @@ function App() {
   return (
     <Router>
       <AppContent />
+      <SpeedInsights />
     </Router>
   );
 }
