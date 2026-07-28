@@ -16,7 +16,7 @@ import LanguageSwitcher from '@/components/LanguageSwitcher';
 export default function AccountPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, loading } = useAuth();
   const { has } = useCapabilities();
   const [isAdmin, setIsAdmin] = useState(false);
 
@@ -30,6 +30,14 @@ export default function AccountPage() {
       .then(({ data }) => setIsAdmin(Boolean(data?.is_admin)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
+
+  // Tant que useAuth() n'a pas fini de vérifier la session (getSession()
+  // est asynchrone), isAuthenticated vaut faussement `false`. Rediriger
+  // ici renvoyait un utilisateur pourtant bien connecté vers /connexion,
+  // qui le renvoyait ensuite vers / dès que la session arrivait.
+  if (loading) {
+    return null;
+  }
 
   if (!isAuthenticated) {
     return <Navigate to="/connexion" replace />;
