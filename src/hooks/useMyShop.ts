@@ -31,12 +31,18 @@ export interface MyShop {
 }
 
 export function useMyShop() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [shop, setShop] = useState<MyShop | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
+    // Tant que useAuth() n'a pas fini de vérifier la session, on ne sait
+    // pas encore si `user` est vraiment absent ou juste pas-encore-chargé.
+    // Conclure trop tôt (shop=null, loading=false) faisait rediriger
+    // VendorLayout vers /vendeur/bienvenue pour un vendeur pourtant connecté.
+    if (authLoading) return;
+
     if (!user) {
       setShop(null);
       setLoading(false);
@@ -63,7 +69,7 @@ export function useMyShop() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, [user?.id, authLoading]);
 
   return { shop, loading, error };
 }
