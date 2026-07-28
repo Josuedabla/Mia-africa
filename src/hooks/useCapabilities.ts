@@ -17,11 +17,17 @@ export interface CapabilityRow {
 }
 
 export function useCapabilities() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [capabilities, setCapabilities] = useState<CapabilityRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Attendre que useAuth() ait fini de vérifier la session avant de
+    // conclure quoi que ce soit sur `user` - sinon on lit un faux "pas
+    // connecté" pendant l'instant où la session est encore en cours de
+    // chargement (voir le même correctif dans useMyShop.ts).
+    if (authLoading) return;
+
     if (!user) {
       setCapabilities([]);
       setLoading(false);
@@ -47,7 +53,7 @@ export function useCapabilities() {
       supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, [user?.id, authLoading]);
 
   const has = (capability: Capability, status: CapabilityStatus = 'active') =>
     capabilities.some((c) => c.capability === capability && c.status === status);
