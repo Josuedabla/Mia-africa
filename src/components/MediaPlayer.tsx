@@ -78,7 +78,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ url, mode = 'full', ac
     // d'embarquer n'importe quelle iframe arbitraire, on renvoie un
     // simple lien externe plutôt que de casser la page.
     return (
-      <a
+      
         href={url}
         target="_blank"
         rel="noopener noreferrer"
