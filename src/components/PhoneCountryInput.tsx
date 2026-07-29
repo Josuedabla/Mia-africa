@@ -11,7 +11,7 @@
  * Supabase Auth (signInWithOtp({ phone })) et par la colonne
  * `profiles.phone` / `shops.phone`.
  *
- * Le pays par défaut vient de useCountry() (auto-détection IP/GPS/téléphone
+ * Le pays par défaut est un choix manuel explicite passé par l'appelant
  * déjà en place) — jamais un pays choisi arbitrairement (Togo) pour tout le
  * monde, conformément à la règle produit "jamais de sélecteur de pays
  * imposé au chargement". L'utilisateur reste toujours libre de changer le
@@ -29,7 +29,7 @@ interface PhoneCountryInputProps {
   /** Valeur courante, au format E.164 (ex. "+22890000000") ou vide. */
   value: string;
   onChange: (value: string) => void;
-  /** Code pays ISO 3166-1 alpha-2 par défaut (ex. depuis useCountry()). */
+  /** Code pays ISO 3166-1 alpha-2 par défaut, choisi manuellement par l'appelant. */
   defaultCountry?: string;
   required?: boolean;
   disabled?: boolean;

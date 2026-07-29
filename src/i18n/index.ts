@@ -13,7 +13,7 @@
  *      Cameroun sont francophones).
  *
  * Le mapping pays → langue (ex. Ghana/Nigeria/Kenya → anglais) est géré
- * séparément dans useLanguage.ts, une fois que useCountry() a résolu le
+ * séparément dans useLanguage.ts (langue du navigateur, pas de pays détecté).
  * pays détecté — i18next lui-même reste simple et ne connaît que
  * "quelles langues existent" et "quel texte pour quelle clé".
  */

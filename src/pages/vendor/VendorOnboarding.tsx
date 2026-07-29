@@ -3,10 +3,10 @@
  * (supabase/migrations/20260718000006_functions.sql), which creates the
  * shop and grants the 'seller' capability atomically.
  *
- * The country field is no longer a dropdown the user picks - it's
- * pre-filled from useCountry() (auto-detected) and shown read-only,
- * consistent with the product rule "never ask the user to choose their
- * country".
+ * Le pays de la boutique est un choix manuel explicite (menu déroulant) -
+ * plus aucune auto-détection IP/GPS nulle part dans l'app (décision du
+ * 2026-07-29). C'est une donnée déclarative sur la boutique (devise,
+ * conformité locale), pas un filtre de découverte produit.
  */
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -14,7 +14,6 @@ import { motion } from 'framer-motion';
 import { Store, Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useCapabilities } from '@/hooks/useCapabilities';
-import { useCountry } from '@/hooks/useCountry';
 import { capabilitiesService } from '@/services/capabilities.service';
 import PhoneCountryInput, { isValidPhoneNumber } from '@/components/PhoneCountryInput';
 import { useTranslation } from 'react-i18next';
@@ -30,7 +29,7 @@ export default function VendorOnboarding() {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
   const { isSeller, loading: capabilitiesLoading } = useCapabilities();
-  const { countryCode } = useCountry();
+  const [countryCode, setCountryCode] = useState<string>(Object.keys(COUNTRY_LABELS)[0]);
   const [form, setForm] = useState({ shopName: '', category: CATEGORIES[0], phone: '' });
   const [legalCertificationAccepted, setLegalCertificationAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -113,9 +112,15 @@ export default function VendorOnboarding() {
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">{t('vendor_onboarding.country_detected')}</label>
-          <div className="w-full border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-gray-600">
-            📍 {COUNTRY_LABELS[countryCode] ?? countryCode}
-          </div>
+          <select
+            value={countryCode}
+            onChange={(e) => setCountryCode(e.target.value)}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-mia-green-500 outline-none"
+          >
+            {Object.entries(COUNTRY_LABELS).map(([code, label]) => (
+              <option key={code} value={code}>{label}</option>
+            ))}
+          </select>
         </div>
 
         <PhoneCountryInput

@@ -4,7 +4,7 @@
  * Full rebuild, not a patch: the previous version had a literal "choose
  * your country" <select> (COUNTRIES array + a dropdown), which is exactly
  * what the product direction now forbids - country comes from
- * useCountry() (IP/phone/GPS), never a picker.
+ * useCountry() has never used automatic IP/GPS/phone detection since 2026-07-29.
  *
  * Inspiration blend, all real and functional (not just decorative):
  *  - YouTube: visible MIA logo, central search, personalized sections
@@ -21,7 +21,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Bell, Wallet as WalletIcon, Heart, Flame, Sparkles, Trophy, Navigation, Loader2, User } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
-import { useCountry } from '@/hooks/useCountry';
 import { useWallet } from '@/hooks/useCoins';
 import { getTrendingProducts, getNewProducts, getBestSellers, trackEvent } from '@/services/db.service';
 import { searchProducts, nearbyShops } from '@/services/search.service';
@@ -176,14 +175,12 @@ export default function HomePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
-  // Note : useCountry() n'est plus utilisé pour piloter l'affichage des
-  // produits (Tendances/Nouveautés/Tops Ventes/Recherche/Feed principal).
-  // Décision produit explicite : zéro barrière pays, zéro dépendance à la
-  // détection IP/GPS/localStorage pour montrer du contenu. Le seul usage
-  // géographique restant est "Boutiques près de vous", strictement
-  // opt-in (l'utilisateur clique explicitement sur "Activer la
-  // localisation"), via requestPreciseLocation ci-dessous.
-  const { requestPreciseLocation } = useCountry();
+  // Zéro détection de localisation automatique nulle part sur cette page
+  // (ni pour piloter l'affichage produit, ni en arrière-plan). Le seul
+  // usage géographique de toute la page est "Boutiques près de vous",
+  // strictement opt-in : la demande GPS n'est déclenchée que par le clic
+  // explicite de l'utilisateur, directement dans handleFindNearby
+  // ci-dessous — aucun hook ne l'appelle au montage.
   const { coins } = useWallet();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -248,25 +245,32 @@ export default function HomePage() {
     return searchResults.filter((p) => p.category === activeCategory);
   }, [searchResults, activeCategory]);
 
-  const handleFindNearby = useCallback(async () => {
-    setLoadingNearby(true);
-    try {
-      const result = await requestPreciseLocation();
-      if (!result) {
-        setNearby([]);
-        return;
-      }
-      // requestPreciseLocation only resolves the country - fetch the
-      // actual coordinates again for the distance query itself.
-      navigator.geolocation.getCurrentPosition(async (position) => {
-        const shops = await nearbyShops(position.coords.latitude, position.coords.longitude, 20);
-        setNearby(shops);
-        setLoadingNearby(false);
-      }, () => setLoadingNearby(false));
-    } catch {
-      setLoadingNearby(false);
+  // Seul déclencheur de géolocalisation de toute l'appli : un clic
+  // explicite de l'utilisateur sur "Activer la localisation". Le
+  // navigateur affichera sa propre demande de permission à ce moment-là
+  // seulement — jamais avant, jamais silencieusement.
+  const handleFindNearby = useCallback(() => {
+    if (!('geolocation' in navigator)) {
+      setNearby([]);
+      return;
     }
-  }, [requestPreciseLocation]);
+    setLoadingNearby(true);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const shops = await nearbyShops(position.coords.latitude, position.coords.longitude, 20);
+          setNearby(shops);
+        } finally {
+          setLoadingNearby(false);
+        }
+      },
+      () => {
+        setNearby([]);
+        setLoadingNearby(false);
+      },
+      { timeout: 8000 }
+    );
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">

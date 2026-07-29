@@ -13,28 +13,18 @@ import { useOutletContext, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { supabase } from '@/lib/supabase';
 import { createProduct, updateProduct, setProductSlug } from '@/services/db.service';
-import { geminiService, type ProductTone } from '@/services/gemini.service';
 import { sanitizeProductHtml } from '@/lib/sanitizeHtml';
 import { computeQualityScore } from '@/lib/qualityScore';
 import RichTextEditor from '@/components/editor/RichTextEditor';
 import { parseVideoUrl } from '@/components/MediaPlayer';
 import SlugEditor from '@/components/SlugEditor';
 import type { MyShop } from '@/hooks/useMyShop';
-import { Sparkles, Loader2, Upload, X, Save } from 'lucide-react';
+import { Loader2, Upload, X, Save } from 'lucide-react';
 
 interface OutletCtx {
   shop: MyShop;
   userId: string;
 }
-
-const TONES: { value: ProductTone; labelKey: string }[] = [
-  { value: 'professionnel', labelKey: 'vendor_product_form.tone_professional' },
-  { value: 'premium', labelKey: 'vendor_product_form.tone_premium' },
-  { value: 'persuasif', labelKey: 'vendor_product_form.tone_persuasive' },
-  { value: 'simple', labelKey: 'vendor_product_form.tone_simple' },
-  { value: 'luxe', labelKey: 'vendor_product_form.tone_luxury' },
-  { value: 'tiktok-viral', labelKey: 'vendor_product_form.tone_tiktok' },
-];
 
 const CATEGORY_KEYS = ['fashion', 'electronics', 'beauty', 'home', 'food', 'other'] as const;
 const CATEGORIES = ['Mode', 'Électronique', 'Beauté', 'Maison', 'Alimentation', 'Autre'];
@@ -114,11 +104,6 @@ export default function VendorProductForm() {
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [price, setPrice] = useState<number>(0);
   const [stock, setStock] = useState<number>(1);
-  const [rawNotes, setRawNotes] = useState(''); // vendor's quick bullet notes
-  const [tone, setTone] = useState<ProductTone>('professionnel');
-  const [seoKeywordsInput, setSeoKeywordsInput] = useState('');
-  const [specialInstructions, setSpecialInstructions] = useState('');
-
   const [descriptionHtml, setDescriptionHtml] = useState('');
   const [seoTitle, setSeoTitle] = useState('');
   const [seoDescription, setSeoDescription] = useState('');
@@ -132,7 +117,6 @@ export default function VendorProductForm() {
   const [variantAttrs, setVariantAttrs] = useState<Record<VariantAttrKey, VariantAttrState>>(emptyVariantAttrs());
   const [variantStocks, setVariantStocks] = useState<Record<string, number>>({});
 
-  const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadingExisting, setLoadingExisting] = useState(isEditing);
   const [error, setError] = useState<string | null>(null);
@@ -207,11 +191,6 @@ export default function VendorProductForm() {
     setVariantAttrs((prev) => ({ ...prev, [key]: { ...prev[key], values: prev[key].values.filter((v) => v !== value) } }));
   };
 
-  const featureList = useMemo(
-    () => rawNotes.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 20),
-    [rawNotes]
-  );
-
   const qualityScore = useMemo(
     () =>
       computeQualityScore({
@@ -254,35 +233,6 @@ export default function VendorProductForm() {
     }
   };
 
-  const handleGenerate = async () => {
-    if (!name || !category || !price) {
-      setError(t('vendor_product_form.generate_missing_fields'));
-      return;
-    }
-    setGenerating(true);
-    setError(null);
-    try {
-      const result = await geminiService.generateProductListing({
-        productName: name,
-        category,
-        price,
-        features: featureList,
-        tone,
-        seoKeywords: seoKeywordsInput.split(',').map((k) => k.trim()).filter(Boolean),
-        specialInstructions,
-        country: shop.country_code,
-      });
-      setDescriptionHtml(sanitizeProductHtml(result.descriptionHtml));
-      setSeoTitle(result.seoTitle);
-      setSeoDescription(result.seoDescription);
-      setKeywords(result.keywords);
-    } catch (err: any) {
-      setError(err.message ?? t('vendor_product_form.generate_error'));
-    } finally {
-      setGenerating(false);
-    }
-  };
-
   const handleSave = async (status: 'draft' | 'active') => {
     if (!name || !price) {
       setError(t('vendor_product_form.required_fields'));
@@ -313,7 +263,7 @@ export default function VendorProductForm() {
         seo_description: seoDescription,
         keywords,
         status,
-        ai_generated: Boolean(descriptionHtml),
+        ai_generated: false,
         quality_score: qualityScore.overall,
         external_video_url: trimmedVideoUrl || null,
         has_variants: variantsEnabledCount > 0,
@@ -636,64 +586,6 @@ export default function VendorProductForm() {
                 </span>
               </label>
             </div>
-          </section>
-
-          <section className="bg-mia-green-50 border border-mia-green-200 rounded-xl p-5 space-y-4">
-            <div className="flex items-center gap-2">
-              <Sparkles className="text-mia-green-600" size={20} />
-              <h2 className="font-bold text-gray-900">{t('vendor_product_form.ai_assistant_title')}</h2>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('vendor_product_form.tone_label')}</label>
-              <div className="flex flex-wrap gap-2">
-                {TONES.map((toneOption) => (
-                  <button
-                    key={toneOption.value}
-                    type="button"
-                    onClick={() => setTone(toneOption.value)}
-                    className={`px-3 py-1.5 rounded-full text-sm font-medium border ${
-                      tone === toneOption.value
-                        ? 'bg-mia-green-600 text-white border-mia-green-600'
-                        : 'bg-white text-gray-600 border-gray-300'
-                    }`}
-                  >
-                    {t(toneOption.labelKey)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('vendor_product_form.seo_keywords_label')}</label>
-              <input
-                value={seoKeywordsInput}
-                onChange={(e) => setSeoKeywordsInput(e.target.value)}
-                placeholder={t('vendor_product_form.seo_keywords_placeholder')}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('vendor_product_form.special_instructions_label')}</label>
-              <textarea
-                value={specialInstructions}
-                onChange={(e) => setSpecialInstructions(e.target.value)}
-                rows={2}
-                placeholder={t('vendor_product_form.special_instructions_placeholder')}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 outline-none resize-none"
-              />
-            </div>
-
-            <button
-              type="button"
-              onClick={handleGenerate}
-              disabled={generating}
-              className="w-full flex items-center justify-center gap-2 bg-mia-green-600 hover:bg-mia-green-700 disabled:opacity-60 text-white font-bold py-3 rounded-lg"
-            >
-              {generating ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
-              {generating ? t('vendor_product_form.generating') : t('vendor_product_form.generate_button')}
-            </button>
           </section>
 
           <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-3">
